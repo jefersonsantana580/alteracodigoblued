@@ -240,10 +240,10 @@ def pintar(v):
 styled = pivot.style.map(pintar)
 
 # Mostrar
-with col2:
+    with col2:
     resumo_container.write(styled)
 
 
-    except Exception as e:
+except Exception as e:
         st.error('❌ Erro')
         st.exception(e)
