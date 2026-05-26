@@ -219,45 +219,64 @@ if uploaded_file and processar:
             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
 
-        # ===== RESUMO =====
-        xls = pd.ExcelFile(uploaded_file)
-        delta_sheet = [s for s in xls.sheet_names if 'delta' in s.lower()][0]
-        delta = xls.parse(delta_sheet)
 
-        delta.columns = delta.columns.str.strip()
+# ===== RESUMO FINAL =====
+xls = pd.ExcelFile(uploaded_file)
+delta_sheet = [s for s in xls.sheet_names if 'delta' in s.lower()][0]
+delta = xls.parse(delta_sheet)
 
-        records = []
+delta.columns = delta.columns.str.strip()
 
-        for c in delta.columns:
-            if c in ['PRODUCT', 'PRODUCT SERIES']:
-                continue
+records = []
 
-            tmp = delta[['PRODUCT SERIES', c]].copy()
-            tmp.rename(columns={c: 'Delta'}, inplace=True)
-            tmp['MES'] = c
-            tmp['Delta'] = pd.to_numeric(tmp['Delta'], errors='coerce').fillna(0)
+for c in delta.columns:
+    if c in ['PRODUCT', 'PRODUCT SERIES', 'PRODUCT NEED']:
+        continue
 
-            records.append(tmp)
+    tmp = delta[['PRODUCT SERIES', 'PRODUCT NEED', c]].copy()
+    tmp.rename(columns={c: 'Delta'}, inplace=True)
 
-        long_df = pd.concat(records, ignore_index=True)
+    tmp['MES'] = c
+    tmp['Delta'] = pd.to_numeric(tmp['Delta'], errors='coerce').fillna(0).astype(int)
 
-        resumo = (
-            long_df.groupby(['PRODUCT SERIES', 'MES'])['Delta']
-            .sum()
-            .reset_index()
-        )
+    records.append(tmp)
 
-        pivot = resumo.pivot(
-            index='PRODUCT SERIES',
-            columns='MES',
-            values='Delta'
-        ).fillna(0)
+long_df = pd.concat(records, ignore_index=True)
 
-        pivot = pivot.astype(int)
+# ✅ AGREGAÇÃO
+resumo = (
+    long_df.groupby(['PRODUCT SERIES', 'PRODUCT NEED', 'MES'])['Delta']
+    .sum()
+    .reset_index()
+)
 
-        with col2:
-            resumo_container.dataframe(pivot, use_container_width=True)
+# ✅ ORDENAR MESES CORRETAMENTE
+def ordenar_mes(col):
+    m = re.match(r"([a-zA-ZçÇ]{3})[/\-](\d{2,4})", col)
+    if m:
+        mes = MES_MAP.get(m.group(1).lower(), 0)
+        ano = int(m.group(2))
+        if ano < 100:
+            ano += 2000
+        return (ano, mes)
+    return (9999, 99)
 
-    except Exception as e:
-        st.error('❌ Erro ao processar o arquivo')
-        st.exception(e)
+meses_ordenados = sorted(resumo['MES'].unique(), key=ordenar_mes)
+
+# ✅ PIVOT
+pivot = resumo.pivot(
+    index=['PRODUCT SERIES', 'PRODUCT NEED'],
+    columns='MES',
+    values='Delta'
+).fillna(0)
+
+# ✅ REORDENAR COLUNAS
+pivot = pivot[meses_ordenados]
+
+pivot["TOTAL"] = pivot.sum(axis=1)
+
+pivot = pivot.astype(int)
+
+# ✅ EXIBIR
+with col2:
+    resumo_container.dataframe(pivot, use_container_width=True)
