@@ -156,7 +156,10 @@ with col2:
     resumo_container = st.empty()
 
 
+
+# =======================
 # PROCESSAMENTO
+# =======================
 if uploaded_file and processar:
     try:
         with st.spinner('Processando...'):
@@ -172,7 +175,10 @@ if uploaded_file and processar:
             file_name='resultado.xlsx'
         )
 
-        # ===== RESUMO SIMPLES =====
+        # =======================
+        # RESUMO LIMPO
+        # =======================
+
         xls = pd.ExcelFile(uploaded_file)
         delta_sheet = [s for s in xls.sheet_names if 'delta' in s.lower()][0]
         delta = xls.parse(delta_sheet)
@@ -182,7 +188,13 @@ if uploaded_file and processar:
         lista = []
 
         for col in delta.columns:
+
+            # ignora colunas base
             if col in ['PRODUCT', 'PRODUCT SERIES', 'PRODUCT NEED']:
+                continue
+
+            # ✅ pega SOMENTE meses
+            if not re.match(r"^[A-Za-z]{3}[/\-]\d{2,4}$", str(col)):
                 continue
 
             df_tmp = delta[['PRODUCT SERIES', 'PRODUCT NEED', col]].copy()
@@ -195,12 +207,14 @@ if uploaded_file and processar:
 
         df = pd.concat(lista, ignore_index=True)
 
+        # Agrupar
         df_resumo = df.groupby(
             ['PRODUCT SERIES', 'PRODUCT NEED', 'MES']
         )['VALOR'].sum().reset_index()
 
+        # Ordenar meses
         def chave_mes(m):
-            match = re.match(r"([a-zA-Z]{3})[/\-](\d{2,4})", str(m))
+            match = re.match(r"([A-Za-z]{3})[/\-](\d{2,4})", str(m))
             if match:
                 mes = MES_MAP.get(match.group(1).lower(), 0)
                 ano = int(match.group(2))
@@ -211,6 +225,7 @@ if uploaded_file and processar:
 
         ordem_meses = sorted(df_resumo['MES'].unique(), key=chave_mes)
 
+        # Pivot
         pivot = df_resumo.pivot(
             index=['PRODUCT SERIES', 'PRODUCT NEED'],
             columns='MES',
@@ -219,18 +234,24 @@ if uploaded_file and processar:
 
         pivot = pivot[ordem_meses]
 
+        # TOTAL
         pivot['TOTAL'] = pivot.sum(axis=1)
+
+        # ✅ REMOVER LINHAS ZERADAS
+        pivot = pivot[pivot.sum(axis=1) != 0]
 
         pivot = pivot.astype(int)
 
-        # ✅ CORES
+        # =======================
+        # CORES
+        # =======================
         def pintar(v):
             if v > 0:
                 return 'color: green'
             elif v < 0:
                 return 'color: red'
             else:
-                return 'color: white'
+                return 'color: transparent'
 
         styled = pivot.style.map(pintar)
 
@@ -238,5 +259,5 @@ if uploaded_file and processar:
             resumo_container.write(styled)
 
     except Exception as e:
-        st.error('❌ Erro')
+        st.error('❌ Erro ao processar')
         st.exception(e)
