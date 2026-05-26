@@ -4,6 +4,7 @@ import pandas as pd
 import re
 from itertools import count
 from io import BytesIO
+from pathlib import Path
 
 MES_MAP = {
     'jan': 1, 'fev': 2, 'mar': 3, 'abr': 4, 'mai': 5, 'jun': 6,
@@ -30,10 +31,10 @@ def run_saldo_mestre(input_excel, output_buffer):
         ['PRODUCT PROPOSTO', 'NR_FILA']
     ].fillna('')
 
-    # Mês da FILAS (primeira coluna)
+    # Mês da FILAS
     filas['MES'] = pd.to_datetime(filas.iloc[:, 0]).dt.to_period('M')
 
-    # Explodir delta mensal
+    # Explodir delta
     records = []
 
     for c in delta.columns:
@@ -71,7 +72,7 @@ def run_saldo_mestre(input_excel, output_buffer):
         .to_dict()
     )
 
-    # Substituições e cortes
+    # Substituições
     for _, neg in long_delta[long_delta['Delta'] < 0].iterrows():
         cod_neg = neg['PRODUCT']
         modelo = neg['PRODUCT SERIES']
@@ -109,7 +110,7 @@ def run_saldo_mestre(input_excel, output_buffer):
 
             qtd -= 1
 
-    # Incrementos finais
+    # Incrementos
     inc = count(1)
     increment_rows = []
 
@@ -146,41 +147,62 @@ def run_saldo_mestre(input_excel, output_buffer):
 # ======================
 # STREAMLIT UI
 # ======================
+
 st.set_page_config(
     page_title='Saldo Mestre — Sugestão de Filas',
-    layout='centered'
+    layout='wide'
 )
 
 st.title('📊 Sugestão de alteração de código em forecast')
+
 st.info(
-    '📌 Importante: o Excel deve manter o formato padrão para fazer o cáculo'
+    '📌 Importante: o Excel deve manter o formato padrão para o cálculo'
 )
 
+# Layout 2 colunas
+col1, col2 = st.columns([1, 1])
 
-from pathlib import Path
+# =======================
+# COLUNA ESQUERDA
+# =======================
+with col1:
 
-ARQUIVO_PADRAO = Path("ARQUIVO PADRAO - Ajuste de código conforme PR.xlsx")
+    st.markdown("## 📥 Baixar arquivo padrão")
 
-st.markdown("### 📥 Baixar arquivo padrão")
+    ARQUIVO_PADRAO = Path("ARQUIVO PADRAO - Ajuste de código conforme PR.xlsx")
 
-if ARQUIVO_PADRAO.exists():
-    with open(ARQUIVO_PADRAO, "rb") as f:
-        st.download_button(
-            label="⬇️ Baixar arquivo padrão",
-            data=f,
-            file_name=ARQUIVO_PADRAO.name,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
-else:
-    st.warning("Arquivo padrão não encontrado no app.")
+    if ARQUIVO_PADRAO.exists():
+        with open(ARQUIVO_PADRAO, "rb") as f:
+            st.download_button(
+                label="⬇️ Baixar arquivo padrão",
+                data=f,
+                file_name=ARQUIVO_PADRAO.name,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+    else:
+        st.warning("Arquivo padrão não encontrado.")
 
-uploaded_file = st.file_uploader(
-    '📂 Selecione o Excel',
-    type='xlsx'
-)
+    uploaded_file = st.file_uploader(
+        '📂 Selecione o Excel',
+        type='xlsx'
+    )
 
-if uploaded_file and st.button('▶️ Processar'):
+    processar = st.button('▶️ Processar', use_container_width=True)
+
+# =======================
+# COLUNA DIREITA
+# =======================
+with col2:
+
+    st.markdown("## 📊 Resumo da análise")
+
+    resumo_container = st.empty()
+
+# =======================
+# PROCESSAMENTO
+# =======================
+if uploaded_file and processar:
     try:
         with st.spinner('Processando arquivo...'):
             output_buffer = BytesIO()
@@ -189,12 +211,52 @@ if uploaded_file and st.button('▶️ Processar'):
 
         st.success('✅ Arquivo gerado com sucesso!')
 
+        # Download resultado
         st.download_button(
             '⬇️ Baixar Excel Final',
             data=output_buffer,
             file_name='FILAS_DEFINITIVO_SALDO_MESTRE.xlsx',
             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
+
+        # ===== RESUMO =====
+        xls = pd.ExcelFile(uploaded_file)
+        delta_sheet = [s for s in xls.sheet_names if 'delta' in s.lower()][0]
+        delta = xls.parse(delta_sheet)
+
+        delta.columns = delta.columns.str.strip()
+
+        records = []
+
+        for c in delta.columns:
+            if c in ['PRODUCT', 'PRODUCT SERIES']:
+                continue
+
+            tmp = delta[['PRODUCT SERIES', c]].copy()
+            tmp.rename(columns={c: 'Delta'}, inplace=True)
+            tmp['MES'] = c
+            tmp['Delta'] = tmp['Delta'].fillna(0)
+
+            records.append(tmp)
+
+        long_df = pd.concat(records, ignore_index=True)
+
+        resumo = (
+            long_df.groupby(['PRODUCT SERIES', 'MES'])['Delta']
+            .sum()
+            .reset_index()
+        )
+
+        pivot = resumo.pivot(
+            index='PRODUCT SERIES',
+            columns='MES',
+            values='Delta'
+        ).fillna(0)
+
+        pivot = pivot.astype(int)
+
+        with col2:
+            resumo_container.dataframe(pivot, use_container_width=True)
 
     except Exception as e:
         st.error('❌ Erro ao processar o arquivo')
