@@ -151,10 +151,9 @@ st.set_page_config(
     layout='centered'
 )
 
-st.title('📊 Saldo Mestre – Sugestão de Filas')
+st.title('📊 Sugestão de alteração de código em forecast')
 st.info(
-    '📌 Importante: o Excel deve conter a aba **FILAS** '
-    'e uma aba **DELTA** do ciclo.'
+    '📌 Importante: o Excel deve manter o formato padrão para fazer o cáculo'
 )
 
 
