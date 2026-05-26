@@ -11,7 +11,6 @@ MES_MAP = {
     'jul': 7, 'ago': 8, 'set': 9, 'out': 10, 'nov': 11, 'dez': 12
 }
 
-
 def run_saldo_mestre(input_excel, output_buffer):
     xls = pd.ExcelFile(input_excel)
 
@@ -22,7 +21,6 @@ def run_saldo_mestre(input_excel, output_buffer):
     filas.columns = filas.columns.str.strip()
     delta.columns = delta.columns.str.strip()
 
-    # Garantir colunas
     for col in ['PRODUCT PROPOSTO', 'NR_FILA']:
         if col not in filas.columns:
             filas[col] = ''
@@ -31,10 +29,8 @@ def run_saldo_mestre(input_excel, output_buffer):
         ['PRODUCT PROPOSTO', 'NR_FILA']
     ].fillna('')
 
-    # Mês da FILAS
     filas['MES'] = pd.to_datetime(filas.iloc[:, 0]).dt.to_period('M')
 
-    # Explodir delta
     records = []
 
     for c in delta.columns:
@@ -63,16 +59,13 @@ def run_saldo_mestre(input_excel, output_buffer):
     long_delta = pd.concat(records, ignore_index=True)
     long_delta = long_delta.dropna(subset=['Delta'])
     long_delta = long_delta[long_delta['Delta'] != 0]
-    long_delta = long_delta.sort_values('MES')
 
-    # Saldo mestre
     saldo = (
         long_delta.groupby('PRODUCT')['Delta']
         .apply(lambda s: int(s[s > 0].sum()))
         .to_dict()
     )
 
-    # Substituições
     for _, neg in long_delta[long_delta['Delta'] < 0].iterrows():
         cod_neg = neg['PRODUCT']
         modelo = neg['PRODUCT SERIES']
@@ -91,16 +84,7 @@ def run_saldo_mestre(input_excel, output_buffer):
                 break
 
             candidatos = [p for p, s in saldo.items() if s > 0]
-            candidatos_same = [
-                p for p in candidatos
-                if p in delta[delta['PRODUCT SERIES'] == modelo]['PRODUCT'].values
-            ]
-
-            escolhido = (
-                candidatos_same[0]
-                if candidatos_same
-                else (candidatos[0] if candidatos else None)
-            )
+            escolhido = candidatos[0] if candidatos else None
 
             if escolhido:
                 filas.at[idx, 'PRODUCT PROPOSTO'] = escolhido
@@ -110,7 +94,6 @@ def run_saldo_mestre(input_excel, output_buffer):
 
             qtd -= 1
 
-    # Incrementos
     inc = count(1)
     increment_rows = []
 
@@ -131,40 +114,27 @@ def run_saldo_mestre(input_excel, output_buffer):
             increment_rows.append(row)
 
     if increment_rows:
-        filas = pd.concat(
-            [filas, pd.DataFrame(increment_rows)],
-            ignore_index=True
-        )
+        filas = pd.concat([filas, pd.DataFrame(increment_rows)], ignore_index=True)
 
-    # Exportar
     with pd.ExcelWriter(output_buffer, engine='openpyxl') as writer:
         filas.drop(columns='MES', errors='ignore').to_excel(
             writer, sheet_name='FILAS', index=False
         )
         delta.to_excel(writer, sheet_name=delta_sheet, index=False)
 
-
 # ======================
-# STREAMLIT UI
+# UI
 # ======================
 
-st.set_page_config(
-    page_title='Saldo Mestre — Sugestão de Filas',
-    layout='wide'
-)
+st.set_page_config(page_title='Saldo Mestre', layout='wide')
 
 st.title('📊 Sugestão de alteração de código em forecast')
 
-st.info(
-    '📌 Importante: o Excel deve manter o formato padrão para o cálculo'
-)
+st.info('📌 Importante: o Excel deve manter o formato padrão para o cálculo')
 
-# Layout 2 colunas
 col1, col2 = st.columns([0.6, 1.4])
 
-# =======================
-# COLUNA ESQUERDA
-# =======================
+# ESQUERDA
 with col1:
 
     st.markdown("## 📥 Baixar arquivo padrão")
@@ -173,110 +143,83 @@ with col1:
 
     if ARQUIVO_PADRAO.exists():
         with open(ARQUIVO_PADRAO, "rb") as f:
-            st.download_button(
-                label="⬇️ Baixar arquivo padrão",
-                data=f,
-                file_name=ARQUIVO_PADRAO.name,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
+            st.download_button("⬇️ Baixar arquivo padrão", f)
     else:
         st.warning("Arquivo padrão não encontrado.")
 
-    uploaded_file = st.file_uploader(
-        '📂 Selecione o Excel',
-        type='xlsx'
-    )
-
+    uploaded_file = st.file_uploader('📂 Selecione o Excel', type='xlsx')
     processar = st.button('▶️ Processar', use_container_width=True)
 
-# =======================
-# COLUNA DIREITA
-# =======================
+# DIREITA
 with col2:
-
     st.markdown("## 📊 Resumo da análise")
-
     resumo_container = st.empty()
 
-# =======================
 # PROCESSAMENTO
-# =======================
 if uploaded_file and processar:
     try:
-        with st.spinner('Processando arquivo...'):
+        with st.spinner('Processando...'):
             output_buffer = BytesIO()
             run_saldo_mestre(uploaded_file, output_buffer)
             output_buffer.seek(0)
 
-        st.success('✅ Arquivo gerado com sucesso!')
+        st.success('✅ Arquivo gerado!')
 
-        # Download resultado
         st.download_button(
             '⬇️ Baixar Excel Final',
             data=output_buffer,
-            file_name='FILAS_DEFINITIVO_SALDO_MESTRE.xlsx',
-            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            file_name='resultado.xlsx'
         )
 
+        # ===== RESUMO (CORRETO) =====
+        xls = pd.ExcelFile(uploaded_file)
+        delta_sheet = [s for s in xls.sheet_names if 'delta' in s.lower()][0]
+        delta = xls.parse(delta_sheet)
 
-# ===== RESUMO FINAL =====
-xls = pd.ExcelFile(uploaded_file)
-delta_sheet = [s for s in xls.sheet_names if 'delta' in s.lower()][0]
-delta = xls.parse(delta_sheet)
+        records = []
 
-delta.columns = delta.columns.str.strip()
+        for c in delta.columns:
+            if c in ['PRODUCT', 'PRODUCT SERIES', 'PRODUCT NEED']:
+                continue
 
-records = []
+            tmp = delta[['PRODUCT SERIES', 'PRODUCT NEED', c]].copy()
+            tmp.rename(columns={c: 'Delta'}, inplace=True)
 
-for c in delta.columns:
-    if c in ['PRODUCT', 'PRODUCT SERIES', 'PRODUCT NEED']:
-        continue
+            tmp['MES'] = c
+            tmp['Delta'] = pd.to_numeric(tmp['Delta'], errors='coerce').fillna(0)
 
-    tmp = delta[['PRODUCT SERIES', 'PRODUCT NEED', c]].copy()
-    tmp.rename(columns={c: 'Delta'}, inplace=True)
+            records.append(tmp)
 
-    tmp['MES'] = c
-    tmp['Delta'] = pd.to_numeric(tmp['Delta'], errors='coerce').fillna(0).astype(int)
+        long_df = pd.concat(records, ignore_index=True)
 
-    records.append(tmp)
+        resumo = long_df.groupby(
+            ['PRODUCT SERIES', 'PRODUCT NEED', 'MES']
+        )['Delta'].sum().reset_index()
 
-long_df = pd.concat(records, ignore_index=True)
+        def ordenar_mes(col):
+            m = re.match(r"([a-zA-ZçÇ]{3})[/\-](\d{2,4})", col)
+            if m:
+                mes = MES_MAP.get(m.group(1).lower(), 0)
+                ano = int(m.group(2))
+                if ano < 100:
+                    ano += 2000
+                return (ano, mes)
+            return (9999, 99)
 
-# ✅ AGREGAÇÃO
-resumo = (
-    long_df.groupby(['PRODUCT SERIES', 'PRODUCT NEED', 'MES'])['Delta']
-    .sum()
-    .reset_index()
-)
+        meses_ordenados = sorted(resumo['MES'].unique(), key=ordenar_mes)
 
-# ✅ ORDENAR MESES CORRETAMENTE
-def ordenar_mes(col):
-    m = re.match(r"([a-zA-ZçÇ]{3})[/\-](\d{2,4})", col)
-    if m:
-        mes = MES_MAP.get(m.group(1).lower(), 0)
-        ano = int(m.group(2))
-        if ano < 100:
-            ano += 2000
-        return (ano, mes)
-    return (9999, 99)
+        pivot = resumo.pivot(
+            index=['PRODUCT SERIES', 'PRODUCT NEED'],
+            columns='MES',
+            values='Delta'
+        ).fillna(0)
 
-meses_ordenados = sorted(resumo['MES'].unique(), key=ordenar_mes)
+        pivot = pivot[meses_ordenados]
+        pivot["TOTAL"] = pivot.sum(axis=1)
 
-# ✅ PIVOT
-pivot = resumo.pivot(
-    index=['PRODUCT SERIES', 'PRODUCT NEED'],
-    columns='MES',
-    values='Delta'
-).fillna(0)
+        with col2:
+            resumo_container.dataframe(pivot.astype(int), use_container_width=True)
 
-# ✅ REORDENAR COLUNAS
-pivot = pivot[meses_ordenados]
-
-pivot["TOTAL"] = pivot.sum(axis=1)
-
-pivot = pivot.astype(int)
-
-# ✅ EXIBIR
-with col2:
-    resumo_container.dataframe(pivot, use_container_width=True)
+    except Exception as e:
+        st.error('❌ Erro')
+        st.exception(e)
