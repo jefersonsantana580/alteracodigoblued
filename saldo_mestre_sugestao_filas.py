@@ -235,7 +235,7 @@ if uploaded_file and processar:
             tmp = delta[['PRODUCT SERIES', c]].copy()
             tmp.rename(columns={c: 'Delta'}, inplace=True)
             tmp['MES'] = c
-            tmp['Delta'] = tmp['Delta'].fillna(0)
+            tmp['Delta'] = pd.to_numeric(tmp['Delta'], errors='coerce').fillna(0)
 
             records.append(tmp)
 
