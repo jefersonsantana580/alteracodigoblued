@@ -155,6 +155,7 @@ with col2:
     st.markdown("## 📊 Resumo da análise")
     resumo_container = st.empty()
 
+
 # PROCESSAMENTO
 if uploaded_file and processar:
     try:
@@ -171,79 +172,71 @@ if uploaded_file and processar:
             file_name='resultado.xlsx'
         )
 
-        
-# ===== RESUMO SIMPLES E ESTÁVEL =====
+        # ===== RESUMO SIMPLES =====
+        xls = pd.ExcelFile(uploaded_file)
+        delta_sheet = [s for s in xls.sheet_names if 'delta' in s.lower()][0]
+        delta = xls.parse(delta_sheet)
 
-xls = pd.ExcelFile(uploaded_file)
-delta_sheet = [s for s in xls.sheet_names if 'delta' in s.lower()][0]
-delta = xls.parse(delta_sheet)
+        delta.columns = delta.columns.str.strip()
 
-delta.columns = delta.columns.str.strip()
+        lista = []
 
-lista = []
+        for col in delta.columns:
+            if col in ['PRODUCT', 'PRODUCT SERIES', 'PRODUCT NEED']:
+                continue
 
-for col in delta.columns:
-    if col in ['PRODUCT', 'PRODUCT SERIES', 'PRODUCT NEED']:
-        continue
+            df_tmp = delta[['PRODUCT SERIES', 'PRODUCT NEED', col]].copy()
+            df_tmp.columns = ['PRODUCT SERIES', 'PRODUCT NEED', 'VALOR']
 
-    df_tmp = delta[['PRODUCT SERIES', 'PRODUCT NEED', col]].copy()
-    df_tmp.columns = ['PRODUCT SERIES', 'PRODUCT NEED', 'VALOR']
+            df_tmp['VALOR'] = pd.to_numeric(df_tmp['VALOR'], errors='coerce').fillna(0)
+            df_tmp['MES'] = col
 
-    df_tmp['VALOR'] = pd.to_numeric(df_tmp['VALOR'], errors='coerce').fillna(0)
-    df_tmp['MES'] = col
+            lista.append(df_tmp)
 
-    lista.append(df_tmp)
+        df = pd.concat(lista, ignore_index=True)
 
-df = pd.concat(lista, ignore_index=True)
+        df_resumo = df.groupby(
+            ['PRODUCT SERIES', 'PRODUCT NEED', 'MES']
+        )['VALOR'].sum().reset_index()
 
-# Agrupa
-df_resumo = df.groupby(
-    ['PRODUCT SERIES', 'PRODUCT NEED', 'MES']
-)['VALOR'].sum().reset_index()
+        def chave_mes(m):
+            match = re.match(r"([a-zA-Z]{3})[/\-](\d{2,4})", str(m))
+            if match:
+                mes = MES_MAP.get(match.group(1).lower(), 0)
+                ano = int(match.group(2))
+                if ano < 100:
+                    ano += 2000
+                return (ano, mes)
+            return (9999, 99)
 
-# Ordenar meses corretamente
-def chave_mes(m):
-    match = re.match(r"([a-zA-Z]{3})[/\-](\d{2,4})", str(m))
-    if match:
-        mes = MES_MAP.get(match.group(1).lower(), 0)
-        ano = int(match.group(2))
-        if ano < 100:
-            ano += 2000
-        return (ano, mes)
-    return (9999, 99)
+        ordem_meses = sorted(df_resumo['MES'].unique(), key=chave_mes)
 
-ordem_meses = sorted(df_resumo['MES'].unique(), key=chave_mes)
+        pivot = df_resumo.pivot(
+            index=['PRODUCT SERIES', 'PRODUCT NEED'],
+            columns='MES',
+            values='VALOR'
+        ).fillna(0)
 
-# Pivot
-pivot = df_resumo.pivot(
-    index=['PRODUCT SERIES', 'PRODUCT NEED'],
-    columns='MES',
-    values='VALOR'
-).fillna(0)
+        pivot = pivot[ordem_meses]
 
-pivot = pivot[ordem_meses]
+        pivot['TOTAL'] = pivot.sum(axis=1)
 
-# Total
-pivot['TOTAL'] = pivot.sum(axis=1)
+        pivot = pivot.astype(int)
 
-pivot = pivot.astype(int)
+        # ✅ CORES
+        def pintar(v):
+            if v > 0:
+                return 'color: green'
+            elif v < 0:
+                return 'color: red'
+            else:
+                return 'color: white'
 
-# ===== COLORAÇÃO =====
-def pintar(v):
-    if v > 0:
-        return 'color: green'
-    elif v < 0:
-        return 'color: red'
-    else:
-        return 'color: white'
+        styled = pivot.style.map(pintar)
 
-styled = pivot.style.map(pintar)
+        with col2:
+            resumo_container.write(styled)
 
-# Mostrar
-    with col2:
-    resumo_container.write(styled)
-
-
-except Exception as e:
+    except Exception as e:
         st.error('❌ Erro')
         st.exception(e)
