@@ -157,6 +157,25 @@ st.info(
     'e uma aba **DELTA** do ciclo.'
 )
 
+
+from pathlib import Path
+
+ARQUIVO_PADRAO = Path("ARQUIVO PADRAO - Ajuste de código conforme PR.xlsx")
+
+st.markdown("### 📥 Baixar arquivo padrão")
+
+if ARQUIVO_PADRAO.exists():
+    with open(ARQUIVO_PADRAO, "rb") as f:
+        st.download_button(
+            label="⬇️ Baixar arquivo padrão",
+            data=f,
+            file_name=ARQUIVO_PADRAO.name,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+else:
+    st.warning("Arquivo padrão não encontrado no app.")
+
 uploaded_file = st.file_uploader(
     '📂 Selecione o Excel',
     type='xlsx'
