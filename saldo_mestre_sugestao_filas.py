@@ -160,7 +160,7 @@ st.info(
 )
 
 # Layout 2 colunas
-col1, col2 = st.columns([1, 1])
+col1, col2 = st.columns([0.8, 1.2])
 
 # =======================
 # COLUNA ESQUERDA
